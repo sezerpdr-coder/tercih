@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lise Tercih Robotu Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --text: #1e293b; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; display: flex; justify-content: center; }
+        .container { background-color: var(--card); padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); max-width: 1000px; width: 100%; }
+        h1, h3 { text-align: center; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background-color: var(--primary); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        button:hover { background-color: #1d4ed8; }
+        .results { margin-top: 30px; }
+        .school-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 14px; }
+        .school-table th, .school-table td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
+        .school-table th { background-color: #f1f5f9; }
+        .info-box { background-color: #eff6ff; border-left: 4px solid var(--primary); padding: 10px; margin-bottom: 20px; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Lise Tercih Robotu 🎓</h1>
+    
+    <div class="form-group">
+        <label>Google E-Tablo CSV Linki:</label>
+        <input type="text" id="csvUrl" placeholder="CSV linkini yapıştırın...">
+        <button onclick="veriCek()">Verileri Yükle</button>
+    </div>
+
+    <div id="main-form" style="display:none;">
+        <div class="form-group">
+            <label>İlçe Seçimi:</label>
+            <select id="ilce"></select>
+        </div>
+        <div class="form-group">
+            <label>Öğrenci OBP Puanı:</label>
+            <input type="number" id="obpPuan" step="0.01">
+        </div>
+        <div class="form-group">
+            <label>Öğrenci LGS Puanı:</label>
+            <input type="number" id="lgsPuan" step="0.01">
+        </div>
+        <button onclick="tercihListesiOlustur()">Tercih Listesi Oluştur</button>
+    </div>
+
+    <div class="results" id="sonuclar"></div>
+</div>
+
+<script>
+    let okullarVerisi = [];
+
+    function veriCek() {
+        const url = document.getElementById('csvUrl').value;
+        Papa.parse(url, {
+            download: true, header: true, skipEmptyLines: true,
+            complete: function(results) {
+                okullarVerisi = results.data;
+                ilceDoldur();
+                document.getElementById('main-form').style.display = 'block';
+                alert('Veriler yüklendi!');
+            }
+        });
+    }
+
+    function ilceDoldur() {
+        const ilceSelect = document.getElementById('ilce');
+        const ilceler = [...new Set(okullarVerisi.map(o => o['İlçe']))].filter(Boolean).sort();
+        ilceSelect.innerHTML = ilceler.map(i => `<option value="${i}">${i}</option>`).join('');
+    }
+
+    // Gelişmiş Filtreleme Algoritması
+    function yerelTercihHesapla(okullar, ogrenciPuan) {
+        let finalListe = [];
+        let turSayaci = {};
+
+        // 1. Filtrele: Puan aralığı (+10 / -10)
+        let adayOkullar = okullar.filter(o => {
+            const p = parseFloat(o['OBP Puanı']);
+            return o['Alım Türü'] === 'OBP' && p <= (ogrenciPuan + 10) && p >= (ogrenciPuan - 10);
+        }).sort((a, b) => parseFloat(b['OBP Puanı']) - parseFloat(a['OBP Puanı']));
+
+        // --- ADIM A: İlk 3 Tercih (Sadece Kayıt Alanında) ---
+        let kayitAlanindakiOkullar = adayOkullar.filter(o => o['Kayıt Bölgesi'] === 'Kayıt Alanında');
+        
+        for (let okul of kayitAlanindakiOkullar) {
+            if (finalListe.length >= 3) break;
+            let tur = okul['Okul Türü'];
+            if ((turSayaci[tur] || 0) < 3) {
+                finalListe.push(okul);
+                turSayaci[tur] = (turSayaci[tur] || 0) + 1;
+            }
+        }
+
+        // --- ADIM B: 4. ve 5. Tercihler (Her Yerden) ---
+        // Daha önce seçilmemiş okulları al
+        let kalanAdaylar = adayOkullar.filter(o => !finalListe.includes(o));
+
+        for (let okul of kalanAdaylar) {
+            if (finalListe.length >= 5) break;
+            let tur = okul['Okul Türü'];
+            if ((turSayaci[tur] || 0) < 3) {
+                finalListe.push(okul);
+                turSayaci[tur] = (turSayaci[tur] || 0) + 1;
+            }
+        }
+
+        return finalListe;
+    }
+
+    function lgsTercihHesapla(okullar, ogrenciPuan) {
+        let finalListe = [];
+        let turSayaci = {};
+
+        let adayOkullar = okullar.filter(o => {
+            const p = parseFloat(o['LGS Puanı']);
+            return o['Alım Türü'] === 'LGS' && p <= (ogrenciPuan + 20) && p >= (ogrenciPuan - 20);
+        }).sort((a, b) => parseFloat(b['LGS Puanı']) - parseFloat(a['LGS Puanı']));
+
+        for (let okul of adayOkullar) {
+            if (finalListe.length >= 10) break;
+            let tur = okul['Okul Türü'];
+            if ((turSayaci[tur] || 0) < 3) {
+                finalListe.push(okul);
+                turSayaci[tur] = (turSayaci[tur] || 0) + 1;
+            }
+        }
+        return finalListe;
+    }
+
+    function tercihListesiOlustur() {
+        const seciliIlce = document.getElementById('ilce').value;
+        const obp = parseFloat(document.getElementById('obpPuan').value);
+        const lgs = parseFloat(document.getElementById('lgsPuan').value);
+        const sonuclarDiv = document.getElementById('sonuclar');
+        sonuclarDiv.innerHTML = '';
+
+        const ilceOkullari = okullarVerisi.filter(o => o['İlçe'] === seciliIlce);
+
+        if (!isNaN(obp)) {
+            const obpListesi = yerelTercihHesapla(ilceOkullari, obp);
+            tabloCiz('Yerel Yerleştirme Tercih Listesi (OBP)', obpListesi, ['Okul Adı', 'Okul Türü', 'Kayıt Bölgesi', 'OBP Puanı']);
+        }
+
+        if (!isNaN(lgs)) {
+            const lgsListesi = lgsTercihHesapla(ilceOkullari, lgs);
+            tabloCiz('Merkezi Yerleştirme Tercih Listesi (LGS)', lgsListesi, ['Okul Adı', 'Okul Türü', 'LGS Puanı', 'Yüzdelik Dilim']);
+        }
+    }
+
+    function tabloCiz(baslik, veri, sutunlar) {
+        const div = document.getElementById('sonuclar');
+        div.innerHTML += `<h3>${baslik}</h3>`;
+        if (veri.length === 0) { div.innerHTML += '<p>Uygun okul bulunamadı.</p>'; return; }
+        
+        let html = '<table class="school-table"><thead><tr>';
+        sutunlar.forEach(s => html += `<th>${s}</th>`);
+        html += '</tr></thead><tbody>';
+        veri.forEach(o => {
+            html += '<tr>';
+            sutunlar.forEach(s => html += `<td>${o[s] || '-'}</td>`);
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        div.innerHTML += html;
+    }
+</script>
+</body>
+</html>
