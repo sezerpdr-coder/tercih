@@ -13,6 +13,7 @@
         input[type="number"], input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         button { background-color: #3498db; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 4px; cursor: pointer; width: 100%; transition: background 0.3s; }
         button:hover { background-color: #2980b9; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
         .results { margin-top: 30px; }
         .tercih-listesi { margin-bottom: 30px; border: 1px solid #e1e8ed; border-radius: 4px; overflow: hidden; }
         .tercih-listesi h3 { background-color: #e1e8ed; margin: 0; padding: 15px; }
@@ -22,13 +23,17 @@
         tr:last-child td { border-bottom: none; }
         .badge-sinavli { background-color: #e74c3c; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; }
         .badge-sinavsiz { background-color: #2ecc71; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; }
+        .badge-kayit-alani { background-color: #f39c12; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; margin-left: 5px; }
+        #loading { color: #e67e22; font-weight: bold; margin-bottom: 15px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Lise Tercih Robotu (MEB Algoritması)</h1>
-    <p>Öğrenci verilerini girerek uygun tercih listelerini oluşturun.</p>
+    <p>Öğrenci verilerini girerek MEB kurallarına uygun tercih listelerini oluşturun.</p>
+    
+    <div id="loading">Veritabanı yükleniyor, lütfen bekleyin...</div>
 
     <div class="form-group">
         <label>Öğrencinin OBP Puanı (0-100):</label>
@@ -43,17 +48,18 @@
         <input type="number" id="yuzdelik" step="0.01" placeholder="Örn: 5.40">
     </div>
     <div class="form-group">
-        <label>Tercih Edilecek İlçeler (Virgülle ayırın, hepsi için boş bırakın):</label>
+        <label>İkamet Edilen İlçe / Kayıt Alanı (Tercih edilecek ilçeler):</label>
         <input type="text" id="ilceler" placeholder="Örn: Şahinbey, Şehitkamil">
+        <small style="color: #7f8c8d;">İlk 3 yerel tercih, buraya yazdığınız ilçelerden seçilecektir.</small>
     </div>
-    <button onclick="tercihOlustur()">Tercih Listesi Oluştur</button>
+    <button id="hesaplaBtn" onclick="tercihOlustur()" disabled>Tercih Listesi Oluştur</button>
 
     <div class="results" id="sonuclar" style="display: none;">
         <h2>Oluşturulan Tercih Listeleri</h2>
         
         <div class="tercih-listesi">
             <h3>1. Yerel Yerleştirme Tercihleri (Sınavsız - OBP ile)</h3>
-            <p style="padding: 0 15px; font-size: 14px; color: #7f8c8d;">MEB kuralları gereği zorunludur. Maksimum 5 tercih yapılabilir.</p>
+            <p style="padding: 0 15px; font-size: 14px; color: #7f8c8d;">MEB kuralları gereği 5 tercih yapılabilir. İlk 3 tercih "Kayıt Alanında" olmak zorundadır.</p>
             <table>
                 <thead>
                     <tr>
@@ -70,7 +76,7 @@
 
         <div class="tercih-listesi">
             <h3>2. Merkezi Yerleştirme Tercihleri (Sınavlı - LGS ile)</h3>
-            <p style="padding: 0 15px; font-size: 14px; color: #7f8c8d;">Yüzdelik dilime göre %20 üstten başlar, %50 alta kadar iner. Maksimum 10 tercih yapılabilir.</p>
+            <p style="padding: 0 15px; font-size: 14px; color: #7f8c8d;">Yüzdelik dilime göre %30 hayal/üst, %50 garanti/alt seviyeden toplam 10 tercih seçilmiştir.</p>
             <table>
                 <thead>
                     <tr>
@@ -88,70 +94,119 @@
 </div>
 
 <script>
-    // E-Tablodan alınacak olan veri tabanı simülasyonu
-    // Gerçek uygulamada bu verileri bir Excel(CSV) dosyasından veya API'den çekebilirsiniz.
-    const liseVeritabani = [
-        { ad: "Gaziantep Fen Lisesi", ilce: "Şehitkamil", tur: "Fen Lisesi", alim: "Sınavlı", yuzdelik: 0.80, obp: null },
-        { ad: "Vehbi Dinçerler Fen Lisesi", ilce: "Şahinbey", tur: "Fen Lisesi", alim: "Sınavlı", yuzdelik: 1.50, obp: null },
-        { ad: "Gaziantep Anadolu Lisesi", ilce: "Şahinbey", tur: "Anadolu Lisesi", alim: "Sınavlı", yuzdelik: 4.20, obp: null },
-        { ad: "Yasemin Erman Balsu Anadolu Lisesi", ilce: "Şahinbey", tur: "Anadolu Lisesi", alim: "Sınavlı", yuzdelik: 6.50, obp: null },
-        { ad: "Şehitkamil Anadolu Lisesi", ilce: "Şehitkamil", tur: "Anadolu Lisesi", alim: "Sınavlı", yuzdelik: 8.90, obp: null },
-        { ad: "Sabahattin Zaim Sosyal Bilimler Lisesi", ilce: "Şahinbey", tur: "Sosyal Bilimler", alim: "Sınavlı", yuzdelik: 11.20, obp: null },
-        { ad: "M.R. Uzel Mesleki ve T.A.L.", ilce: "Şehitkamil", tur: "Meslek Lisesi", alim: "Sınavlı", yuzdelik: 25.00, obp: null },
+    const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQhdkA4KdIOrFcJYQLRMcevIHtmH8XYxHIU5d0jjrHupFmM5VaciDtswzqCp4bcwEDo_3WzQulIgazh/pub?gid=0&single=true&output=csv";
+    let liseVeritabani = [];
+
+    // Sayfa yüklendiğinde verileri çek
+    window.onload = function() {
+        verileriCek();
+    };
+
+    async function verileriCek() {
+        try {
+            const response = await fetch(csvUrl);
+            const data = await response.text();
+            liseVeritabani = csvParser(data);
+            
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('hesaplaBtn').disabled = false;
+            console.log("Veri çekildi:", liseVeritabani.length, "okul bulundu.");
+        } catch (error) {
+            document.getElementById('loading').innerText = "Veri çekilirken bir hata oluştu. Bağlantınızı kontrol edin.";
+            document.getElementById('loading').style.color = "red";
+            console.error("CSV Çekme Hatası:", error);
+        }
+    }
+
+    // CSV formatındaki veriyi JSON objesine dönüştüren fonksiyon
+    // DİKKAT: Google Sheet sütun sıralamanızın şu şekilde olduğu varsayılmıştır:
+    // Sütun 0: Okul Adı, 1: İlçe, 2: Okul Türü, 3: Alım Şekli (Sınavlı/Sınavsız), 4: Yüzdelik Dilim, 5: OBP
+    function csvParser(str) {
+        const rows = str.split('\n');
+        let result = [];
         
-        { ad: "Ayten Kemal Akınal Anadolu Lisesi", ilce: "Şehitkamil", tur: "Anadolu Lisesi", alim: "Sınavsız", yuzdelik: null, obp: 94.50 },
-        { ad: "Bülbülzade Abdullah Edip Anadolu Lisesi", ilce: "Şahinbey", tur: "Anadolu Lisesi", alim: "Sınavsız", yuzdelik: null, obp: 89.00 },
-        { ad: "Hasan Ali Yücel Anadolu Lisesi", ilce: "Şehitkamil", tur: "Anadolu Lisesi", alim: "Sınavsız", yuzdelik: null, obp: 82.50 },
-        { ad: "Şahinbey Belediyesi Anadolu Lisesi", ilce: "Şahinbey", tur: "Anadolu Lisesi", alim: "Sınavsız", yuzdelik: null, obp: 78.00 },
-        { ad: "Kanuni Sultan Süleyman M.T.A.L.", ilce: "Şahinbey", tur: "Meslek Lisesi", alim: "Sınavsız", yuzdelik: null, obp: 65.00 }
-    ];
+        // İlk satırı (başlıkları) atlayıp döngüyü 1'den başlatıyoruz
+        for(let i = 1; i < rows.length; i++) {
+            if(!rows[i].trim()) continue;
+            
+            // Tırnak içindeki virgülleri es geçmek için ayırıcı
+            let row = rows[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || rows[i].split(',');
+            row = row.map(item => item.replace(/(^"|"$)/g, '').trim());
+
+            result.push({
+                ad: row[0] || "Bilinmeyen Okul",
+                ilce: row[1] || "",
+                tur: row[2] || "",
+                alim: row[3] || "Sınavsız",
+                yuzdelik: row[4] ? parseFloat(row[4].replace(',', '.')) : null,
+                obp: row[5] ? parseFloat(row[5].replace(',', '.')) : null
+            });
+        }
+        return result;
+    }
 
     function tercihOlustur() {
         const obp = parseFloat(document.getElementById('obp').value);
         const yuzdelik = parseFloat(document.getElementById('yuzdelik').value);
         const ilcelerInput = document.getElementById('ilceler').value.toLowerCase();
         
-        // İlçe filtreleme için dizi oluştur
         const tercihEdilenIlceler = ilcelerInput.split(',').map(i => i.trim()).filter(i => i !== "");
 
-        if (!obp || !yuzdelik) {
-            alert("Lütfen öğrencinin OBP ve Yüzdelik Dilim bilgilerini eksiksiz girin.");
+        if (!obp || !yuzdelik || tercihEdilenIlceler.length === 0) {
+            alert("Lütfen öğrencinin OBP, Yüzdelik Dilim ve Kayıt Alanı (İlçe) bilgilerini eksiksiz girin.");
             return;
         }
 
-        // 1. ADIM: Okulları ilçelere göre filtrele
-        let filtrelenmisOkullar = liseVeritabani;
-        if (tercihEdilenIlceler.length > 0) {
-            filtrelenmisOkullar = liseVeritabani.filter(okul => 
-                tercihEdilenIlceler.includes(okul.ilce.toLowerCase())
-            );
+        // --- 1. YEREL YERLEŞTİRME ALGORİTMASI (5 Tercih, İlk 3'ü Kayıt Alanından) ---
+        let sinavsizOkullar = liseVeritabani.filter(okul => okul.alim.toLowerCase().includes("sınavsız") || okul.alim.toLowerCase().includes("sinavsiz"));
+        
+        // Öğrencinin OBP'sine uygun olanları filtrele (Örn: Öğrencinin OBP'sinin en fazla 5 puan üstüne kadar)
+        let uygunSinavsizOkullar = sinavsizOkullar.filter(okul => okul.obp !== null && okul.obp <= obp + 5);
+        
+        // OBP'ye göre büyükten küçüğe sırala
+        uygunSinavsizOkullar.sort((a, b) => b.obp - a.obp);
+
+        // Okulları "Kayıt Alanında" (girilen ilçeler) ve "Diğer" olarak ayır
+        let kayitAlaniOkullari = uygunSinavsizOkullar.filter(okul => tercihEdilenIlceler.includes(okul.ilce.toLowerCase()));
+        let digerOkullar = uygunSinavsizOkullar.filter(okul => !tercihEdilenIlceler.includes(okul.ilce.toLowerCase()));
+
+        let yerelTercihler = [];
+
+        // KURAL 1: İlk 3 tercih kesinlikle kayıt alanından olmalı
+        for (let i = 0; i < 3 && i < kayitAlaniOkullari.length; i++) {
+            yerelTercihler.push({...kayitAlaniOkullari[i], kayitAlanindaMi: true});
         }
 
-        // 2. ADIM: Yerel Yerleştirme Algoritması (OBP'ye göre)
-        // Kendi OBP'sine en yakın üstten başlayarak aşağı doğru okulları sırala
-        let yerelOkullar = filtrelenmisOkullar.filter(okul => okul.alim === "Sınavsız");
-        // Okulları OBP'ye göre büyükten küçüğe sırala
-        yerelOkullar.sort((a, b) => b.obp - a.obp);
+        // KURAL 2: Kalan 2 tercih diğer okullardan veya yine kayıt alanından seçilebilir
+        let kalanIhtiyac = 5 - yerelTercihler.length;
         
-        // Sadece öğrencinin OBP'sine uygun olanları seç (Kendi OBP'sinin maksimum 3 puan üstü ve altı)
-        let yerelTercihler = yerelOkullar.filter(okul => okul.obp <= obp + 3).slice(0, 5); // Max 5 tercih
+        // Kayıt alanından arta kalan okullar ile diğer okulları birleştir, OBP'ye göre tekrar sırala
+        let havuzOkullar = [...kayitAlaniOkullari.slice(yerelTercihler.length), ...digerOkullar];
+        havuzOkullar.sort((a, b) => b.obp - a.obp);
 
-        // 3. ADIM: Merkezi Yerleştirme Algoritması (Yüzdelik Dilime Göre)
-        // İdeal tercih sepeti: %20 hayal, %50 kendi dilimi, %30 güvenli bölge (daha yüksek yüzdelik)
-        let merkeziOkullar = filtrelenmisOkullar.filter(okul => okul.alim === "Sınavlı");
-        
-        let minYuzdelik = yuzdelik * 0.7; // %30 daha iyi bir okul (Hayal tercihi)
-        let maxYuzdelik = yuzdelik * 1.5; // %50 daha düşük okul (Güvenli tercih)
+        for (let i = 0; i < havuzOkullar.length && kalanIhtiyac > 0; i++) {
+            yerelTercihler.push({
+                ...havuzOkullar[i], 
+                kayitAlanindaMi: tercihEdilenIlceler.includes(havuzOkullar[i].ilce.toLowerCase())
+            });
+            kalanIhtiyac--;
+        }
 
-        let merkeziTercihler = merkeziOkullar.filter(okul => 
-            okul.yuzdelik >= minYuzdelik && okul.yuzdelik <= maxYuzdelik
-        );
+
+        // --- 2. MERKEZİ YERLEŞTİRME ALGORİTMASI (LGS - 10 Tercih) ---
+        let sinavliOkullar = liseVeritabani.filter(okul => okul.alim.toLowerCase().includes("sınavlı") || okul.alim.toLowerCase().includes("sinavli"));
         
-        // Yüzdelik dilime göre küçükten büyüğe (iyiden kötüye) sırala ve max 10 tercih al
+        // Öğrencinin yüzdelik diliminin %30 daha iyisinden başla, %50 daha düşüğüne kadar in
+        let minYuzdelik = yuzdelik * 0.70; 
+        let maxYuzdelik = yuzdelik * 1.50; 
+
+        let merkeziTercihler = sinavliOkullar.filter(okul => okul.yuzdelik !== null && okul.yuzdelik >= minYuzdelik && okul.yuzdelik <= maxYuzdelik);
+        
+        // Yüzdelik dilime göre küçükten büyüğe (iyiden kötüye) sırala ve ilk 10'u al
         merkeziTercihler.sort((a, b) => a.yuzdelik - b.yuzdelik);
         merkeziTercihler = merkeziTercihler.slice(0, 10);
 
-        // 4. ADIM: Ekrana Yazdırma
+        // --- EKRANA YAZDIRMA ---
         tabloyuDoldur('yerel-liste', yerelTercihler, 'Sınavsız');
         tabloyuDoldur('merkezi-liste', merkeziTercihler, 'Sınavlı');
 
@@ -172,9 +227,15 @@
             let puanMetni = tur === 'Sınavsız' ? okul.obp : `%${okul.yuzdelik}`;
             let badgeClass = tur === 'Sınavsız' ? 'badge-sinavsiz' : 'badge-sinavli';
             
+            // Yerel yerleştirmede Kayıt Alanı etiketi ekle
+            let kayitAlaniBadge = '';
+            if (tur === 'Sınavsız' && okul.kayitAlanindaMi) {
+                kayitAlaniBadge = '<span class="badge-kayit-alani">Kayıt Alanında</span>';
+            }
+            
             tr.innerHTML = `
                 <td><strong>${index + 1}</strong></td>
-                <td>${okul.ad} <span class="${badgeClass}">${okul.alim}</span></td>
+                <td>${okul.ad} <span class="${badgeClass}">${okul.alim}</span> ${kayitAlaniBadge}</td>
                 <td>${okul.ilce}</td>
                 <td>${okul.tur}</td>
                 <td><strong>${puanMetni}</strong></td>
